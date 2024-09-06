@@ -9,6 +9,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import multer from "multer";
 import authRoutes from "./routes/auth.js";
+import taskRoutes from "./routes/task.js";
+import habitRoutes from "./routes/habit.js";
 
 // Configurations
 const app = express();
@@ -36,6 +38,14 @@ const upload = multer({ storage });
 
 // ROUTES
 app.use("/auth", authRoutes);
+app.use("/users/tasks/", taskRoutes);
+app.use("/users/habits/", habitRoutes);
+
+app.get("/users/:userId/minimal", (req, res) => {
+  const userId = req.params.userId;
+  console.log(userId);
+  res.status(200).send("successful");
+});
 
 const PORT = process.env.PORT || 3005;
 mongoose

@@ -2,11 +2,11 @@ import mongoose from "mongoose";
 
 const habitSchema = new mongoose.Schema({
   title: { type: String, required: true },
-  streak: { type: Number, default: 0 },
+  habitStreak: { type: Number, default: 0 },
   goal: { type: String, enum: ["daily", "weekly"], required: true },
-  reminderTime: { type: Date },
+  reminderTime: { type: String, required: true },
   repeatDays: {
-    type: String,
+    type: [String],
     enum: [
       "Monday",
       "Tuesday",
@@ -16,6 +16,11 @@ const habitSchema = new mongoose.Schema({
       "Saturday",
       "Sunday",
     ],
+  },
+  status: {
+    type: String,
+    enum: ["complete", "paused", "incomplete"],
+    default: "incomplete",
   },
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
 });

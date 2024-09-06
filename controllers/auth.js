@@ -5,6 +5,10 @@ import jwt from "jsonwebtoken";
 export const registerUser = async (req, res) => {
   try {
     const { firstName, lastName, email, password } = req.body;
+    const checkEmail = await User.findOne({ email });
+    if (checkEmail)
+      return res.status(400).json({ msg: "Email already exists" });
+
     const hashedPassword = await argon2.hash(password, {
       type: argon2.argon2id,
     });
@@ -30,10 +34,12 @@ export const loginUser = async (req, res) => {
     const isMatch = await argon2.verify(user.password, password); // check if password is correct
     if (!isMatch) return res.status(400).json({ msg: "Incorrect password." }); // if password isn't correct
 
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET); // generate token
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+      expiresIn: "30d",
+    }); // generate token
     user.password = "";
     res.status(200).json({ token, user });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
   }
 };
