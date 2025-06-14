@@ -14,6 +14,9 @@ export const createTask = async (req, res) => {
       userId,
     });
     const createdTask = await task.save();
+    await User.findByIdAndUpdate(userId, {
+      $push: { taskIds: createdTask._id },
+    });
     res.status(201).json(createdTask);
   } catch (err) {
     console.log(err);
@@ -99,6 +102,9 @@ export const deleteTask = async (req, res) => {
     const task = await Task.findByIdAndDelete(taskId);
     if (!task)
       return res.status(400).json({ msg: "Task was likely not found." });
+    await User.findByIdAndUpdate(userId, {
+      $pull: { taskIds: taskId },
+    });
     res.status(204).json({ msg: "Task was deleted successfully." });
   } catch (err) {
     console.log(err.message);

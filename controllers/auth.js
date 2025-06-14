@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken";
 
 export const registerUser = async (req, res) => {
   try {
-    const { firstName, lastName, email, password } = req.body;
+    const { firstName, lastName, email, password, userTimeZone } = req.body;
     const checkEmail = await User.findOne({ email });
     if (checkEmail)
       return res.status(400).json({ msg: "Email already exists" });
@@ -17,6 +17,7 @@ export const registerUser = async (req, res) => {
       lastName,
       email,
       password: hashedPassword,
+      userTimeZone,
     });
     const savedUser = await newUser.save();
     res.status(201).json(savedUser);
@@ -27,7 +28,7 @@ export const registerUser = async (req, res) => {
 
 export const loginUser = async (req, res) => {
   try {
-    const { email, password } = req.body; // get email from request body
+    const { email, password, userTimeZone } = req.body; // get email from request body
     const user = await User.findOne({ email }); // find user by email
     if (!user) return res.status(400).json({ msg: "Email does not exist." }); //return if email doesn't exist
 
@@ -37,9 +38,26 @@ export const loginUser = async (req, res) => {
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
       expiresIn: "30d",
     }); // generate token
+    const filter = { _id: user._id };
+    const doc = { userTimeZone: userTimeZone };
+    const result = await User.updateOne(filter, { $set: doc }); // update timezone
     user.password = "";
-    res.status(200).json({ token, user });
+    res.status(200).json({ token, user, result });
   } catch (err) {
     console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export const getUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: "User not found." });
+    user.password = "";
+    res.status(200).json(user);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
   }
 };

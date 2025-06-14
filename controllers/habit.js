@@ -1,14 +1,21 @@
 import Habit from "../models/Habit.js";
+import User from "../models/User.js";
+import moment from "moment-timezone";
 
 export const createHabit = async (req, res) => {
   try {
-    const { title, goal, reminderTime, repeatDays } = req.body;
-    const userId = req.params.userId;
+    let { title, goal, reminderTime, repeatDays } = req.body;
+    const { userId } = req.params;
 
     if (!title || !goal || !reminderTime)
       return res.status(400).json({ msg: "Fill in the required fields" });
     if (!userId) return res.status(400).json({ msg: "User id is not present" });
 
+    if (repeatDays.length !== 0) goal = "weekly";
+    if (repeatDays.length > 6) {
+      goal = "daily";
+      repeatDays = [];
+    }
     const newHabit = new Habit({
       title,
       goal,
@@ -17,6 +24,9 @@ export const createHabit = async (req, res) => {
       userId,
     });
     const result = await newHabit.save();
+    await User.findByIdAndUpdate(userId, {
+      $push: { habitIds: result._id },
+    });
     res.status(201).json({ result, msg: "Habit created succesfully." });
   } catch (err) {
     console.log(err);
@@ -65,8 +75,10 @@ export const deleteHabit = async (req, res) => {
       return res.status(400).json({ msg: "Parameter is absent." });
 
     const habit = await Habit.findByIdAndDelete(habitId);
-    console.log(habit);
     if (!habit) return res.status(404).json({ msg: "Habit may not exist." });
+    await User.findByIdAndUpdate(userId, {
+      $pull: { habitIds: habitId },
+    });
 
     res.status(204).json({ msg: "Habit deleted successfully." });
   } catch (err) {
@@ -107,6 +119,33 @@ export const markComplete = async (req, res) => {
       }
       res.status(200).json({ result, msg: "Habit marked as incomplete." });
     }
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Get user habits by userId
+export const getUserHabitsToday = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (!userId)
+      return res.status(400).json({ msg: "Parameter is not present" });
+
+    const user = await User.findById(userId);
+    const timezone = user.userTimeZone;
+
+    // important filtering logic
+    const currentTime = moment().tz(timezone);
+    const currentDay = currentTime.format("dddd");
+
+    const habits = await Habit.find({
+      userId,
+      $or: [{ goal: "daily" }, { goal: "weekly", repeatDays: currentDay }],
+      status: { $in: ["incomplete", "paused"] },
+    });
+    if (!habits) return res.status(404).json({ msg: "No habits found." });
+    res.status(200).json(habits);
   } catch (err) {
     console.log(err);
     res.status(500).json({ error: err.message });
