@@ -9,7 +9,8 @@ import {
     removeFriend,
     signupUser,
     logoutUser,
-    checkUsername
+    checkUsername,
+    updateUserProfile
 } from "../controllers/auth.js";
 import verifyToken from "../middleware/auth.js";
 import { updateTimezone } from "../middleware/timezone.js";
@@ -33,5 +34,8 @@ router.delete("/user/:userId/friend", verifyToken, removeFriend);
 router.get("/check-username/:username", checkUsername);
 
 router.post("/:userId", verifyToken, updateTimezone, createHabit);
+
+// Update user profile
+router.patch("/user/:userId", verifyToken, updateUserProfile);
 
 export default router;

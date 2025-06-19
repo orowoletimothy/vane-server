@@ -255,3 +255,30 @@ export const getUserHabitsToday = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+export const getUserPublicHabits = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const habits = await Habit.find({ userId, is_public: true }).select('icon title _id habitStreak');
+    res.status(200).json(habits.map(h => ({
+      _id: h._id,
+      icon: h.icon,
+      title: h.title,
+      streak: h.habitStreak
+    })));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export const getAllUserHabits = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const habits = await Habit.find({ userId });
+    res.status(200).json(habits);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+};

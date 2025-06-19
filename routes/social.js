@@ -7,6 +7,8 @@ import {
     acceptFriendRequest,
     rejectFriendRequest,
     removeFriend,
+    getOutgoingFriendRequests,
+    cancelFriendRequest,
 } from "../controllers/social.js"
 import verifyToken from "../middleware/auth.js"
 
@@ -32,5 +34,11 @@ router.post("/user/:userId/reject-friend", verifyToken, rejectFriendRequest)
 
 // Remove friend
 router.delete("/user/:userId/friend", verifyToken, removeFriend)
+
+// Get outgoing friend requests (users the current user has sent requests to)
+router.get("/user/:userId/outgoing-friend-requests", verifyToken, getOutgoingFriendRequests)
+
+// Cancel a pending friend request sent by the current user
+router.post("/user/:userId/cancel-friend-request", verifyToken, cancelFriendRequest)
 
 export default router 

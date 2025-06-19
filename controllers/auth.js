@@ -318,3 +318,21 @@ export const checkUsername = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+
+export const updateUserProfile = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { displayName, profilePicture } = req.body;
+    const updateFields = {};
+    if (displayName !== undefined) updateFields.displayName = displayName;
+    if (profilePicture !== undefined) updateFields.profilePicture = profilePicture;
+    const user = await User.findByIdAndUpdate(userId, updateFields, { new: true }).select('-password');
+    if (!user) {
+      return res.status(404).json({ msg: "User not found." });
+    }
+    res.status(200).json(user);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+};

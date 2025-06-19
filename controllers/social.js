@@ -1,10 +1,11 @@
 import User from "../models/User.js"
+import { ObjectId } from "mongodb"
 
 // Get user's friends
 export const getFriends = async (req, res) => {
     try {
         const user = await User.findById(req.params.userId)
-            .populate("friends", "displayName username profilePicture")
+            .populate("friends", "displayName username profilePicture createdAt genStreakCount longestStreak")
 
         if (!user) {
             return res.status(404).json({ message: "User not found" })
@@ -34,6 +35,39 @@ export const getFriendRequests = async (req, res) => {
     }
 }
 
+// Get outgoing friend requests (users the current user has sent requests to)
+export const getOutgoingFriendRequests = async (req, res) => {
+    try {
+        const userId = req.params.userId;
+        // Find all users who have this userId in their friendRequests array
+        const users = await User.find({ friendRequests: userId })
+            .select("displayName username profilePicture longestStreak genStreakCount email");
+        res.json(users);
+    } catch (error) {
+        console.error("Error getting outgoing friend requests:", error);
+        res.status(500).json({ message: "Error getting outgoing friend requests" });
+    }
+};
+
+// Cancel a pending friend request sent by the current user
+export const cancelFriendRequest = async (req, res) => {
+    try {
+        const { friendId } = req.body;
+        const userId = req.params.userId;
+        // Remove userId from the friendRequests array of the target user
+        const friend = await User.findById(friendId);
+        if (!friend) {
+            return res.status(404).json({ message: "User not found" });
+        }
+        friend.friendRequests = friend.friendRequests.filter(id => id.toString() !== userId);
+        await friend.save();
+        res.json({ message: "Friend request cancelled" });
+    } catch (error) {
+        console.error("Error cancelling friend request:", error);
+        res.status(500).json({ message: "Error cancelling friend request" });
+    }
+};
+
 // Search users
 export const searchUsers = async (req, res) => {
     try {
@@ -41,16 +75,15 @@ export const searchUsers = async (req, res) => {
         if (!query) {
             return res.status(400).json({ message: "Search query is required" })
         }
-
         const users = await User.find({
             $or: [
                 { username: { $regex: query, $options: "i" } },
                 { displayName: { $regex: query, $options: "i" } }
-            ],
-            _id: { $ne: req.user._id } // Exclude current user
-        }).select("displayName username profilePicture longestStreak genStreakCount email")
-
-        res.json(users)
+            ]
+        }).select("displayName username profilePicture longestStreak genStreakCount email");
+        // Always exclude current user by string comparison
+        const filteredUsers = req.user && req.user._id ? users.filter(u => String(u._id) !== String(req.user._id)) : users;
+        res.json(filteredUsers);
     } catch (error) {
         console.error("Error searching users:", error)
         res.status(500).json({ message: "Error searching users" })

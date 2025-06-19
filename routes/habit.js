@@ -5,6 +5,8 @@ import {
   deleteHabit,
   setHabitStatus,
   getUserHabitsToday,
+  getUserPublicHabits,
+  getAllUserHabits,
 } from "../controllers/habit.js";
 import verifyToken from "../middleware/auth.js";
 import { updateTimezone } from "../middleware/timezone.js";
@@ -13,6 +15,8 @@ const router = express.Router();
 
 //get routes
 router.get("/:userId/today", updateTimezone, verifyToken, getUserHabitsToday);
+router.get("/:userId/public", getUserPublicHabits);
+router.get("/:userId/all", getAllUserHabits);
 
 //  create routes
 router.post("/:userId", verifyToken, createHabit);

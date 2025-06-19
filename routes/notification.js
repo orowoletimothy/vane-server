@@ -4,7 +4,8 @@ import {
     markNotificationRead,
     deleteNotification,
     savePushSubscription,
-    updateNotificationPreferences
+    updateNotificationPreferences,
+    sendEncouragementNote
 } from "../controllers/notification.js";
 import verifyToken from "../middleware/auth.js";
 
@@ -24,5 +25,8 @@ router.post("/:userId/push-subscription", verifyToken, savePushSubscription);
 
 // Update notification preferences
 router.put("/:userId/preferences", verifyToken, updateNotificationPreferences);
+
+// Send encouragement note
+router.post("/:recipientId/encouragement-note", verifyToken, sendEncouragementNote);
 
 export default router;
