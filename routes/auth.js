@@ -42,7 +42,6 @@ router.get("/check-username/:username", checkUsername);
 
 router.post("/:userId", verifyToken, updateTimezone, createHabit);
 
-// Update user profile
-router.patch("/user/:userId", verifyToken, updateUserProfile);
+
 
 export default router;

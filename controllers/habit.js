@@ -3,10 +3,11 @@ import User from "../models/User.js";
 import HabitCompletion from "../models/HabitCompletion.js";
 import moment from "moment-timezone";
 import { scheduleHabitNotifications } from "./notification.js";
+import { checkHabitFeasibility } from "../services/habitFeasibilityService.js";
 
 export const createHabit = async (req, res) => {
   try {
-    let { title, icon, reminderTime, repeatDays, target_count, is_public, isPublic, notes } = req.body;
+    let { title, icon, reminderTime, repeatDays, target_count, is_public, isPublic, notes, skipFeasibilityCheck } = req.body;
     const { userId } = req.params;
 
     // Handle both is_public and isPublic for backward compatibility
@@ -26,6 +27,31 @@ export const createHabit = async (req, res) => {
       });
     }
     if (!userId) return res.status(400).json({ msg: "User id is not present" });
+
+    // Perform feasibility check unless explicitly skipped
+    if (!skipFeasibilityCheck) {
+      const feasibilityResult = await checkHabitFeasibility(userId, {
+        title,
+        reminderTime,
+        repeatDays,
+        target_count,
+        notes
+      });
+
+      // If not feasible, return the result without creating the habit
+      if (!feasibilityResult.feasible) {
+        return res.status(409).json({
+          msg: "Habit not feasible",
+          feasibility: feasibilityResult
+        });
+      }
+
+      // If feasible but with warnings, include them in the response
+      if (feasibilityResult.warnings.length > 0 || feasibilityResult.confidence !== 'high') {
+        // Store feasibility info for inclusion in success response
+        req.feasibilityResult = feasibilityResult;
+      }
+    }
 
     if (req.body.timezone) {
       await User.findByIdAndUpdate(userId, {
@@ -63,7 +89,17 @@ export const createHabit = async (req, res) => {
     // Schedule notification for the new habit
     await scheduleHabitNotifications(newHabit._id);
 
-    res.status(201).json({ result: newHabit, msg: "Habit created successfully." });
+    const response = { 
+      result: newHabit, 
+      msg: "Habit created successfully." 
+    };
+
+    // Include feasibility information if it was checked and has warnings
+    if (req.feasibilityResult) {
+      response.feasibility = req.feasibilityResult;
+    }
+
+    res.status(201).json(response);
   } catch (err) {
     console.error("Error creating habit:", err);
     res.status(500).json({ error: err.message });
@@ -429,8 +465,6 @@ export const getUserPublicHabits = async (req, res) => {
   }
 };
 
-
-
 export const getAllUserHabits = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -669,6 +703,57 @@ export const checkAndResetMissedStreaks = async () => {
     console.log("Daily streak check completed");
   } catch (error) {
     console.error("Error in daily streak check:", error);
+  }
+};
+
+// Check habit feasibility before creation
+export const checkHabitFeasibilityEndpoint = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { title, reminderTime, repeatDays, target_count, notes } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ msg: "User id is not present" });
+    }
+
+    if (!title || !reminderTime) {
+      return res.status(400).json({
+        msg: "Missing required fields for feasibility check",
+        details: {
+          missing: {
+            title: !title,
+            reminderTime: !reminderTime
+          }
+        }
+      });
+    }
+
+    const feasibilityResult = await checkHabitFeasibility(userId, {
+      title,
+      reminderTime,
+      repeatDays,
+      target_count,
+      notes
+    });
+
+    res.status(200).json({
+      msg: "Feasibility check completed",
+      feasibility: feasibilityResult
+    });
+
+  } catch (err) {
+    console.error("Error checking habit feasibility:", err);
+    res.status(500).json({ 
+      error: err.message,
+      feasibility: {
+        feasible: true,
+        confidence: 'low',
+        message: '⚠️ Could not fully evaluate feasibility, but you can proceed.',
+        warnings: ['Feasibility check encountered an error.'],
+        suggestions: [],
+        metrics: {}
+      }
+    });
   }
 };
 

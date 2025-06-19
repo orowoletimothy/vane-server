@@ -5,11 +5,11 @@ import {
   deleteHabit,
   setHabitStatus,
   getUserHabitsToday,
-  getAllUserHabits,
   getHabitCompletionHistory,
   getUserPerformanceAnalytics,
   getUserPublicHabits,
   getAllUserHabits,
+  checkHabitFeasibilityEndpoint,
 } from "../controllers/habit.js";
 import verifyToken from "../middleware/auth.js";
 import { updateTimezone } from "../middleware/timezone.js";
@@ -26,6 +26,7 @@ router.get("/:userId/all", getAllUserHabits);
 
 //  create routes
 router.post("/:userId", verifyToken, createHabit);
+router.post("/:userId/feasibility-check", verifyToken, checkHabitFeasibilityEndpoint);
 
 // update routes
 router.put("/:userId/:habitId", verifyToken, updateHabit);
