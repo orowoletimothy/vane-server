@@ -3,6 +3,7 @@ import {
     registerUser,
     loginUser,
     getUser,
+    getCurrentUser,
     sendFriendRequest,
     acceptFriendRequest,
     rejectFriendRequest,
@@ -24,6 +25,7 @@ const router = express.Router();
 router.post("/login", updateTimezone, loginUser);
 router.post("/signup", updateTimezone, signupUser);
 router.post("/logout", verifyToken, logoutUser);
+router.get("/me", verifyToken, getCurrentUser);
 router.get("/user/:userId", verifyToken, getUser);
 
 // Profile management routes

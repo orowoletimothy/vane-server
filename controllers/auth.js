@@ -199,6 +199,29 @@ export const logoutUser = async (req, res) => {
   }
 };
 
+export const getCurrentUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('-password');
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Format user response with mapped field names
+    const userResponse = {
+      ...user.toObject(),
+      date_joined: user.createdAt,
+      longest_streak: user.longestStreak,
+      recovery_points: user.recoveryPoints,
+      is_vacation: user.isVacation
+    };
+
+    res.status(200).json({ user: userResponse });
+  } catch (err) {
+    console.error("Get current user error:", err);
+    res.status(500).json({ message: "Error getting user data" });
+  }
+};
+
 export const getUser = async (req, res) => {
   try {
     const { userId } = req.params;

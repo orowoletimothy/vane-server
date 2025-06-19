@@ -20,6 +20,8 @@ const userSchema = new mongoose.Schema({
   genStreakCount: { type: Number, default: 0 },
   userTimeZone: { type: String, default: "Africa/Lagos" },
   longestStreak: { type: Number, default: 0 },
+  lastStreakUpdate: { type: Date },
+  todayStreakEarned: { type: Boolean }, // Track if today's streak increment is earned
   recoveryPoints: { type: Number, default: 3 },
   isVacation: { type: Boolean, default: false },
   profilePicture: { type: String, default: "default-profile.png" },

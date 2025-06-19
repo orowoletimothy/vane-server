@@ -13,6 +13,7 @@ import authRoutes from "./routes/auth.js";
 import habitRoutes from "./routes/habit.js";
 import notificationRoutes from "./routes/notification.js";
 import { processPendingNotifications } from "./controllers/notification.js";
+import { checkAndResetMissedStreaks } from "./controllers/habit.js";
 import socialRoutes from "./routes/social.js"
 
 // Configurations
@@ -59,6 +60,15 @@ const NOTIFICATION_CHECK_INTERVAL = 60000; // Check every minute
 setInterval(async () => {
   await processPendingNotifications();
 }, NOTIFICATION_CHECK_INTERVAL);
+
+// Set up daily streak checker (runs every hour, but only processes once per day)
+const STREAK_CHECK_INTERVAL = 60 * 60 * 1000; // Check every hour
+setInterval(async () => {
+  await checkAndResetMissedStreaks();
+}, STREAK_CHECK_INTERVAL);
+
+// Run streak check on server startup
+checkAndResetMissedStreaks();
 
 // ROUTES
 app.use("/auth", authRoutes);

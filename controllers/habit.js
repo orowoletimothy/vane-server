@@ -155,7 +155,7 @@ export const setHabitStatus = async (req, res) => {
 
       // Record the completion in HabitCompletion collection
       try {
-        await HabitCompletion.findOneAndUpdate(
+        const completion = await HabitCompletion.findOneAndUpdate(
           { 
             habitId: habitId, 
             date: today 
@@ -177,7 +177,7 @@ export const setHabitStatus = async (req, res) => {
             new: true 
           }
         );
-        console.log(`Recorded completion for habit ${habitId} on ${today}`);
+        console.log(`Recorded completion for habit ${habitId} on ${today}. Total: ${completion.completedCount}/${habit.target_count}`);
       } catch (completionError) {
         console.error("Error recording habit completion:", completionError);
         // Continue even if completion recording fails
@@ -230,34 +230,140 @@ export const setHabitStatus = async (req, res) => {
   }
 };
 
-// Function to update user's general streak if all non-paused habits are complete
+// Function to update user's general streak based on completion status
 export const updateUserGeneralStreak = async (userId) => {
   try {
     const user = await User.findById(userId);
-    if (!user) return;
+    if (!user || user.isVacation) return; // Don't update streaks for users on vacation
 
     const timezone = user.userTimeZone || 'Africa/Lagos';
     const currentDay = moment().tz(timezone).format("ddd");
+    const today = moment().tz(timezone).startOf('day');
+    const yesterday = moment().tz(timezone).subtract(1, 'day').startOf('day');
 
+    // Get today's habits that should be active (non-paused, scheduled for today)
     const habits = await Habit.find({
       userId,
       status: { $in: ['incomplete', 'complete', 'paused'] },
       $or: [
-        { repeatDays: { $size: 0 } },
-        { repeatDays: currentDay }
+        { repeatDays: { $size: 0 } }, // Daily habits
+        { repeatDays: currentDay }     // Habits scheduled for today
       ]
     });
 
     const nonPausedHabits = habits.filter(habit => habit.status !== 'paused');
     const allComplete = nonPausedHabits.length > 0 && nonPausedHabits.every(habit => habit.status === 'complete');
 
+    // Check if we've processed streak for today
+    const lastStreakUpdate = user.lastStreakUpdate ? moment(user.lastStreakUpdate).tz(timezone).startOf('day') : null;
+    const processedToday = lastStreakUpdate && lastStreakUpdate.isSame(today);
+
+    // Determine what the streak should be for today
+    let targetStreakForToday;
+    
     if (allComplete) {
-      user.genStreakCount += 1;
+      // All habits complete - streak should include today
+      if (user.genStreakCount === 0) {
+        // Starting first streak
+        targetStreakForToday = 1;
+      } else {
+        // Check if yesterday was completed to continue streak
+        const yesterdayCompleted = await checkDayCompletion(userId, yesterday, timezone);
+        if (yesterdayCompleted) {
+          targetStreakForToday = user.genStreakCount + 1; // Continue streak
+        } else {
+          targetStreakForToday = 1; // Reset and start new streak
+        }
+      }
+    } else {
+      // Not all habits complete - streak should NOT include today
+      if (processedToday && user.todayStreakEarned === true) {
+        // We had added today's streak earlier, now remove it
+        targetStreakForToday = user.genStreakCount - 1;
+      } else {
+        // Keep current streak as is (don't add today)
+        targetStreakForToday = user.genStreakCount;
+      }
+    }
+
+    // Update streak if it needs to change
+    if (targetStreakForToday !== user.genStreakCount) {
+      const previousStreak = user.genStreakCount;
+      user.genStreakCount = Math.max(0, targetStreakForToday); // Ensure it doesn't go negative
+      
+      // Update tracking fields
+      if (!processedToday) {
+        user.lastStreakUpdate = new Date();
+      }
+      user.todayStreakEarned = allComplete && user.genStreakCount > previousStreak;
+      
+      // Update longest streak if needed
+      if (user.genStreakCount > user.longestStreak) {
+        user.longestStreak = user.genStreakCount;
+      }
+      
+      // Reset tracking if streak goes to 0
+      if (user.genStreakCount === 0) {
+        user.lastStreakUpdate = null;
+        user.todayStreakEarned = undefined;
+      }
+      
       await user.save();
-      console.log(`Updated general streak for user ${userId} to ${user.genStreakCount}`);
+      
+      const action = user.genStreakCount > previousStreak ? 'Incremented' : 'Decremented';
+      console.log(`${action} general streak for user ${userId}: ${previousStreak} → ${user.genStreakCount}`);
+    } else if (allComplete && !processedToday) {
+      // First time completing today - mark as processed even if streak didn't change
+      user.lastStreakUpdate = new Date();
+      user.todayStreakEarned = true;
+      await user.save();
+      console.log(`Marked today as complete for user ${userId}, streak remains: ${user.genStreakCount}`);
     }
   } catch (err) {
     console.error("Error updating user's general streak:", err);
+  }
+};
+
+// Helper function to check if all habits were completed on a specific day
+const checkDayCompletion = async (userId, targetDate, timezone) => {
+  try {
+    const dayName = targetDate.format("ddd");
+    const dateStart = targetDate.toDate();
+    const dateEnd = moment(targetDate).endOf('day').toDate();
+
+    // Get habits that were active on that day
+    const habits = await Habit.find({
+      userId,
+      createdAt: { $lte: dateEnd }, // Only habits that existed on that day
+      $or: [
+        { repeatDays: { $size: 0 } }, // Daily habits
+        { repeatDays: dayName }        // Habits scheduled for that day
+      ]
+    });
+
+    if (habits.length === 0) return true; // No habits = considered complete
+
+    // Check completions for each habit on that day
+    for (const habit of habits) {
+      const completion = await HabitCompletion.findOne({
+        habitId: habit._id,
+        userId,
+        date: {
+          $gte: dateStart,
+          $lte: dateEnd
+        }
+      });
+
+      // If any habit wasn't completed (or doesn't meet target), day is incomplete
+      if (!completion || completion.completedCount < habit.target_count) {
+        return false;
+      }
+    }
+
+    return true; // All habits were completed
+  } catch (error) {
+    console.error("Error checking day completion:", error);
+    return false;
   }
 };
 
@@ -286,6 +392,7 @@ export const getUserHabitsToday = async (req, res) => {
         { $set: { status: "incomplete" } }
       );
       user.lastHabitReset = new Date();
+      user.todayStreakEarned = undefined; // Reset today's streak status for new day
       await user.save();
       console.log(`Reset habit statuses for user ${userId} on new day`);
     }
@@ -503,6 +610,93 @@ export const getUserPerformanceAnalytics = async (req, res) => {
     });
   } catch (err) {
     console.error("Error getting user performance analytics:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Function to check and reset streaks for users who missed days
+export const checkAndResetMissedStreaks = async () => {
+  try {
+    console.log("Running daily streak check...");
+    
+    // Get all users with active streaks (excluding vacation mode users)
+    const users = await User.find({ 
+      genStreakCount: { $gt: 0 },
+      isVacation: { $ne: true } // Don't reset streaks for users on vacation
+    }).select('_id genStreakCount userTimeZone lastStreakUpdate isVacation');
+
+    for (const user of users) {
+      const timezone = user.userTimeZone || 'Africa/Lagos';
+      const today = moment().tz(timezone).startOf('day');
+      const yesterday = moment().tz(timezone).subtract(1, 'day').startOf('day');
+      
+      // Check if user updated streak yesterday
+      const lastStreakUpdate = user.lastStreakUpdate ? 
+        moment(user.lastStreakUpdate).tz(timezone).startOf('day') : null;
+      
+      // If last update was not yesterday and not today, check if yesterday was completed
+      if (!lastStreakUpdate || (!lastStreakUpdate.isSame(yesterday) && !lastStreakUpdate.isSame(today))) {
+        const yesterdayCompleted = await checkDayCompletion(user._id, yesterday, timezone);
+        
+        if (!yesterdayCompleted) {
+          // Reset streak as user missed yesterday
+          user.genStreakCount = 0;
+          user.lastStreakUpdate = null;
+          await user.save();
+          console.log(`Reset streak for user ${user._id} due to missed day`);
+        }
+      }
+    }
+    
+    console.log("Daily streak check completed");
+  } catch (error) {
+    console.error("Error in daily streak check:", error);
+  }
+};
+
+// Test function to verify streak logic (remove this in production)
+export const testStreakLogic = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({ msg: "User not found" });
+    }
+
+    const timezone = user.userTimeZone || 'Africa/Lagos';
+    const currentDay = moment().tz(timezone).format("ddd");
+    
+    // Get today's habits
+    const habits = await Habit.find({
+      userId,
+      status: { $in: ['incomplete', 'complete', 'paused'] },
+      $or: [
+        { repeatDays: { $size: 0 } },
+        { repeatDays: currentDay }
+      ]
+    });
+
+    const nonPausedHabits = habits.filter(habit => habit.status !== 'paused');
+    const allComplete = nonPausedHabits.length > 0 && nonPausedHabits.every(habit => habit.status === 'complete');
+
+    res.status(200).json({
+      userId,
+      currentStreak: user.genStreakCount,
+      todayStreakEarned: user.todayStreakEarned,
+      lastStreakUpdate: user.lastStreakUpdate,
+      totalHabits: habits.length,
+      nonPausedHabits: nonPausedHabits.length,
+      completedHabits: nonPausedHabits.filter(h => h.status === 'complete').length,
+      allComplete,
+      habitStatuses: nonPausedHabits.map(h => ({
+        title: h.title,
+        status: h.status,
+        target: h.target_count
+      }))
+    });
+  } catch (err) {
+    console.error("Error in test streak logic:", err);
     res.status(500).json({ error: err.message });
   }
 };
