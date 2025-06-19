@@ -5,6 +5,9 @@ import {
   deleteHabit,
   setHabitStatus,
   getUserHabitsToday,
+  getAllUserHabits,
+  getHabitCompletionHistory,
+  getUserPerformanceAnalytics,
   getUserPublicHabits,
   getAllUserHabits,
 } from "../controllers/habit.js";
@@ -15,6 +18,9 @@ const router = express.Router();
 
 //get routes
 router.get("/:userId/today", updateTimezone, verifyToken, getUserHabitsToday);
+router.get("/:userId/all", verifyToken, getAllUserHabits);
+router.get("/:userId/:habitId/history", verifyToken, getHabitCompletionHistory);
+router.get("/:userId/analytics", verifyToken, getUserPerformanceAnalytics);
 router.get("/:userId/public", getUserPublicHabits);
 router.get("/:userId/all", getAllUserHabits);
 

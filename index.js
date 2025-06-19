@@ -27,7 +27,7 @@ app.use(cookieParser());
 app.use(cors({
   origin: 'http://localhost:3000',
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH','DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(morgan("common"));
@@ -50,10 +50,7 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // MongoDB connection
-mongoose.connect(process.env.MONGO_LOCAL, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
+mongoose.connect(process.env.MONGO_LOCAL)
   .then(() => console.log("MongoDB connected successfully"))
   .catch((error) => console.log(`${error} did not connect`));
 

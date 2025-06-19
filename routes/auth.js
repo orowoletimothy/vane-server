@@ -10,7 +10,8 @@ import {
     signupUser,
     logoutUser,
     checkUsername,
-    updateUserProfile
+    updateProfile,
+    toggleVacationMode
 } from "../controllers/auth.js";
 import verifyToken from "../middleware/auth.js";
 import { updateTimezone } from "../middleware/timezone.js";
@@ -24,6 +25,10 @@ router.post("/login", updateTimezone, loginUser);
 router.post("/signup", updateTimezone, signupUser);
 router.post("/logout", verifyToken, logoutUser);
 router.get("/user/:userId", verifyToken, getUser);
+
+// Profile management routes
+router.patch("/profile", verifyToken, updateProfile);
+router.post("/vacation-mode", verifyToken, toggleVacationMode);
 
 // Friend system routes
 router.post("/user/:userId/friend-request", verifyToken, sendFriendRequest);
