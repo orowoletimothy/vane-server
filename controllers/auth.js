@@ -1,4 +1,5 @@
 import User from "../models/User.js";
+import Habit from "../models/Habit.js";
 import argon2 from "argon2";
 import jwt from "jsonwebtoken";
 
@@ -64,11 +65,19 @@ export const signupUser = async (req, res) => {
     // Set JWT in HTTP-only cookie
     res.cookie('token', token, COOKIE_OPTIONS);
 
-    // Return user data without password
+    // Return user data without password with mapped field names
     const userToReturn = newUser.toObject();
     delete userToReturn.password;
+    
+    const userResponse = {
+      ...userToReturn,
+      date_joined: userToReturn.createdAt,
+      longest_streak: userToReturn.longestStreak,
+      recovery_points: userToReturn.recoveryPoints,
+      is_vacation: userToReturn.isVacation
+    };
 
-    res.status(201).json({ user: userToReturn });
+    res.status(201).json({ user: userResponse });
   } catch (err) {
     console.error("Signup error:", err);
     res.status(500).json({ message: err.message });
@@ -151,13 +160,22 @@ export const loginUser = async (req, res) => {
     const userToReturn = user.toObject();
     delete userToReturn.password;
 
+    // Format user response with mapped field names
+    const userResponse = {
+      ...userToReturn,
+      date_joined: userToReturn.createdAt,
+      longest_streak: userToReturn.longestStreak,
+      recovery_points: userToReturn.recoveryPoints,
+      is_vacation: userToReturn.isVacation
+    };
+
     console.log('Login successful for user:', emailOrUsername);
     if (req.body.timezone) {
       await User.findByIdAndUpdate(user._id, {
         userTimeZone: req.body.timezone
       });
     }
-    res.status(200).json({ user: userToReturn });
+    res.status(200).json({ user: userResponse });
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ message: "An error occurred during login. Please try again." });
@@ -194,7 +212,22 @@ export const getUser = async (req, res) => {
       return res.status(404).json({ msg: "User not found." });
     }
 
-    res.status(200).json(user);
+    // Get user's habits to calculate statistics
+    const habits = await Habit.find({ userId: user._id });
+    const totalStreakDays = habits.reduce((total, habit) => total + habit.habitStreak, 0);
+
+    // Format user object with mapped field names for frontend compatibility
+    const userResponse = {
+      ...user.toObject(),
+      date_joined: user.createdAt,
+      longest_streak: user.longestStreak,
+      recovery_points: user.recoveryPoints,
+      is_vacation: user.isVacation,
+      totalStreakDays: totalStreakDays,
+      totalHabits: habits.length
+    };
+
+    res.status(200).json(userResponse);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -316,5 +349,83 @@ export const checkUsername = async (req, res) => {
     return res.json({ available: true });
   } catch (err) {
     res.status(500).json({ message: "Server error" });
+  }
+};
+
+export const updateProfile = async (req, res) => {
+  try {
+    const userId = req.user.id; // From auth middleware
+    const { displayName, profilePicture } = req.body;
+
+    // Validate displayName if provided
+    if (displayName !== undefined) {
+      if (!displayName.trim()) {
+        return res.status(400).json({ message: "Display name cannot be empty." });
+      }
+      if (displayName.length > 50) {
+        return res.status(400).json({ message: "Display name must be 50 characters or less." });
+      }
+    }
+
+    // Build update object with only provided fields
+    const updateData = {};
+    if (displayName !== undefined) updateData.displayName = displayName.trim();
+    if (profilePicture !== undefined) updateData.profilePicture = profilePicture;
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      updateData,
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    // Format response with mapped field names
+    const userResponse = {
+      ...updatedUser.toObject(),
+      date_joined: updatedUser.createdAt,
+      longest_streak: updatedUser.longestStreak,
+      recovery_points: updatedUser.recoveryPoints,
+      is_vacation: updatedUser.isVacation
+    };
+
+    res.status(200).json({ user: userResponse });
+  } catch (err) {
+    console.error("Update profile error:", err);
+    res.status(500).json({ message: "Failed to update profile." });
+  }
+};
+
+export const toggleVacationMode = async (req, res) => {
+  try {
+    const userId = req.user.id; // From auth middleware
+
+    const user = await User.findById(userId).select('-password');
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    // Toggle vacation mode
+    user.isVacation = !user.isVacation;
+    await user.save();
+
+    // Format response with mapped field names
+    const userResponse = {
+      ...user.toObject(),
+      date_joined: user.createdAt,
+      longest_streak: user.longestStreak,
+      recovery_points: user.recoveryPoints,
+      is_vacation: user.isVacation
+    };
+
+    res.status(200).json({ 
+      user: userResponse,
+      message: `Vacation mode ${user.isVacation ? 'enabled' : 'disabled'}.`
+    });
+  } catch (err) {
+    console.error("Toggle vacation mode error:", err);
+    res.status(500).json({ message: "Failed to toggle vacation mode." });
   }
 };
