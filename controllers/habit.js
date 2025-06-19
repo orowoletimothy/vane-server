@@ -275,7 +275,6 @@ export const updateUserGeneralStreak = async (userId) => {
     const timezone = user.userTimeZone || 'Africa/Lagos';
     const currentDay = moment().tz(timezone).format("ddd");
     const today = moment().tz(timezone).startOf('day');
-    const yesterday = moment().tz(timezone).subtract(1, 'day').startOf('day');
 
     // Get today's habits that should be active (non-paused, scheduled for today)
     const habits = await Habit.find({
@@ -290,70 +289,29 @@ export const updateUserGeneralStreak = async (userId) => {
     const nonPausedHabits = habits.filter(habit => habit.status !== 'paused');
     const allComplete = nonPausedHabits.length > 0 && nonPausedHabits.every(habit => habit.status === 'complete');
 
-    // Check if we've processed streak for today
-    const lastStreakUpdate = user.lastStreakUpdate ? moment(user.lastStreakUpdate).tz(timezone).startOf('day') : null;
-    const processedToday = lastStreakUpdate && lastStreakUpdate.isSame(today);
+    const lastIncrement = user.lastStreakIncrement ? moment(user.lastStreakIncrement).tz(timezone).startOf('day') : null;
 
-    // Determine what the streak should be for today
-    let targetStreakForToday;
-    
     if (allComplete) {
-      // All habits complete - streak should include today
-      if (user.genStreakCount === 0) {
-        // Starting first streak
-        targetStreakForToday = 1;
-      } else {
-        // Check if yesterday was completed to continue streak
-        const yesterdayCompleted = await checkDayCompletion(userId, yesterday, timezone);
-        if (yesterdayCompleted) {
-          targetStreakForToday = user.genStreakCount + 1; // Continue streak
-        } else {
-          targetStreakForToday = 1; // Reset and start new streak
+      if (!lastIncrement || !lastIncrement.isSame(today)) {
+        // Not incremented today, so increment it
+        const previousStreak = user.genStreakCount;
+        user.genStreakCount += 1;
+        user.lastStreakIncrement = today.toDate();
+        if (user.genStreakCount > user.longestStreak) {
+          user.longestStreak = user.genStreakCount;
         }
+        await user.save();
+        console.log(`Incremented general streak for user ${userId}: ${previousStreak} → ${user.genStreakCount}`);
       }
     } else {
-      // Not all habits complete - streak should NOT include today
-      if (processedToday && user.todayStreakEarned === true) {
-        // We had added today's streak earlier, now remove it
-        targetStreakForToday = user.genStreakCount - 1;
-      } else {
-        // Keep current streak as is (don't add today)
-        targetStreakForToday = user.genStreakCount;
+      if (lastIncrement && lastIncrement.isSame(today)) {
+        // Was incremented today, but now not all habits are complete, so decrement
+        const previousStreak = user.genStreakCount;
+        user.genStreakCount = Math.max(0, user.genStreakCount - 1);
+        user.lastStreakIncrement = null; // Allow re-increment today
+        await user.save();
+        console.log(`Decremented general streak for user ${userId}: ${previousStreak} → ${user.genStreakCount}`);
       }
-    }
-
-    // Update streak if it needs to change
-    if (targetStreakForToday !== user.genStreakCount) {
-      const previousStreak = user.genStreakCount;
-      user.genStreakCount = Math.max(0, targetStreakForToday); // Ensure it doesn't go negative
-      
-      // Update tracking fields
-      if (!processedToday) {
-        user.lastStreakUpdate = new Date();
-      }
-      user.todayStreakEarned = allComplete && user.genStreakCount > previousStreak;
-      
-      // Update longest streak if needed
-      if (user.genStreakCount > user.longestStreak) {
-        user.longestStreak = user.genStreakCount;
-      }
-      
-      // Reset tracking if streak goes to 0
-      if (user.genStreakCount === 0) {
-        user.lastStreakUpdate = null;
-        user.todayStreakEarned = undefined;
-      }
-      
-      await user.save();
-      
-      const action = user.genStreakCount > previousStreak ? 'Incremented' : 'Decremented';
-      console.log(`${action} general streak for user ${userId}: ${previousStreak} → ${user.genStreakCount}`);
-    } else if (allComplete && !processedToday) {
-      // First time completing today - mark as processed even if streak didn't change
-      user.lastStreakUpdate = new Date();
-      user.todayStreakEarned = true;
-      await user.save();
-      console.log(`Marked today as complete for user ${userId}, streak remains: ${user.genStreakCount}`);
     }
   } catch (err) {
     console.error("Error updating user's general streak:", err);

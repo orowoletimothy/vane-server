@@ -31,7 +31,8 @@ const userSchema = new mongoose.Schema({
     friendRequests: { type: Boolean, default: true },
     habitReminders: { type: Boolean, default: true },
     streakMilestones: { type: Boolean, default: true }
-  }
+  },
+  lastStreakIncrement: { type: Date }
 }, {
   timestamps: true // This will add createdAt and updatedAt fields
 });
