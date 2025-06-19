@@ -1,67 +1,107 @@
 import Habit from "../models/Habit.js";
 import User from "../models/User.js";
 import moment from "moment-timezone";
+import { scheduleHabitNotifications } from "./notification.js";
 
 export const createHabit = async (req, res) => {
   try {
-    let { title, goal, reminderTime, repeatDays } = req.body;
+    let { title, icon, reminderTime, repeatDays, target_count, is_public, isPublic, notes } = req.body;
     const { userId } = req.params;
 
-    if (!title || !goal || !reminderTime)
-      return res.status(400).json({ msg: "Fill in the required fields" });
+    // Handle both is_public and isPublic for backward compatibility
+    const publicStatus = is_public !== undefined ? is_public : isPublic;
+
+    console.log('Received habit creation request:', { title, icon, reminderTime, repeatDays, target_count, is_public, isPublic, notes, userId });
+
+    if (!title || !reminderTime) {
+      return res.status(400).json({
+        msg: "Missing required fields",
+        details: {
+          missing: {
+            title: !title,
+            reminderTime: !reminderTime
+          }
+        }
+      });
+    }
     if (!userId) return res.status(400).json({ msg: "User id is not present" });
 
-    if (repeatDays.length !== 0) goal = "weekly";
-    if (repeatDays.length > 6) {
-      goal = "daily";
-      repeatDays = [];
+    if (req.body.timezone) {
+      await User.findByIdAndUpdate(userId, {
+        userTimeZone: req.body.timezone
+      });
     }
+
     const newHabit = new Habit({
       title,
-      goal,
       reminderTime,
-      repeatDays,
+      repeatDays: repeatDays || [],
       userId,
+      habitStreak: 0,
+      status: 'incomplete',
+      icon,
+      target_count,
+      is_public: publicStatus,
+      notes
     });
-    const result = await newHabit.save();
+
+    try {
+      await newHabit.validate();
+    } catch (err) {
+      console.error("Validation error:", err.errors);
+      throw err;
+    }
+
+    await newHabit.save();
+
+    // Update user's habitIds array
     await User.findByIdAndUpdate(userId, {
-      $push: { habitIds: result._id },
+      $push: { habitIds: newHabit._id }
     });
-    res.status(201).json({ result, msg: "Habit created succesfully." });
+
+    // Schedule notification for the new habit
+    await scheduleHabitNotifications(newHabit._id);
+
+    res.status(201).json({ result: newHabit, msg: "Habit created successfully." });
   } catch (err) {
-    console.log(err);
+    console.error("Error creating habit:", err);
     res.status(500).json({ error: err.message });
   }
 };
 
 export const updateHabit = async (req, res) => {
   try {
-    const { title, goal, reminderTime, repeatDays } = req.body;
+    const { title, reminderTime, repeatDays, icon, target_count, is_public, notes } = req.body;
     const { userId, habitId } = req.params;
 
-    if (!title || !goal || !reminderTime)
+    if (!title || !reminderTime)
       return res.status(400).json({ msg: "Fill in the required fields" });
     if (!userId) return res.status(400).json({ msg: "User id is not present" });
 
-    const newHabit = {
+    const updateFields = {
       title,
-      goal,
       reminderTime,
       repeatDays,
+      icon,
+      target_count,
+      is_public,
+      notes
     };
 
-    const filter = { _id: habitId };
-    const result = await Habit.updateOne(filter, { $set: newHabit });
-    if (result.matchedCount === 0) {
-      res.status(400).json({ msg: "Habit not found." });
+    const updatedHabit = await Habit.findOneAndUpdate(
+      { _id: habitId, userId },
+      updateFields,
+      { new: true }
+    );
+
+    if (!updatedHabit) {
+      return res.status(400).json({ msg: "Habit not found." });
     }
-    if (result.modifiedCount === 0) {
-      res.status(400).json({ msg: "No change was made." });
-    }
-    if (result.upsertedCount > 0) {
-      res.status(201).json({ msg: "A new habit was added." });
-    }
-    res.status(200).json({ result, msg: "Habit updated succesfully." });
+
+    // Reschedule notification with updated time
+    await scheduleHabitNotifications(updatedHabit._id);
+
+    res.status(200).json({ result: updatedHabit, msg: "Habit updated successfully." });
   } catch (err) {
     console.log(err);
     res.status(500).json({ error: err.message });
@@ -74,10 +114,14 @@ export const deleteHabit = async (req, res) => {
     if (!userId || !habitId)
       return res.status(400).json({ msg: "Parameter is absent." });
 
-    const habit = await Habit.findByIdAndDelete(habitId);
-    if (!habit) return res.status(404).json({ msg: "Habit may not exist." });
+    const deletedHabit = await Habit.findOneAndDelete({ _id: habitId, userId });
+    if (!deletedHabit) {
+      return res.status(404).json({ msg: "Habit not found." });
+    }
+
+    // Remove habit from user's habitIds array
     await User.findByIdAndUpdate(userId, {
-      $pull: { habitIds: habitId },
+      $pull: { habitIds: habitId }
     });
 
     res.status(204).json({ msg: "Habit deleted successfully." });
@@ -87,67 +131,127 @@ export const deleteHabit = async (req, res) => {
   }
 };
 
-// Marks habit complete on click of the done button
-export const markComplete = async (req, res) => {
+export const setHabitStatus = async (req, res) => {
   try {
     const { userId, habitId } = req.params;
+    const { status } = req.body;
     if (!userId || !habitId)
       return res.status(400).json({ msg: "Parameter is absent." });
+    if (!status || !["complete", "incomplete", "paused"].includes(status))
+      return res.status(400).json({ msg: "Invalid or missing status value. Use 'complete', 'incomplete', or 'paused'." });
 
-    const habit = await Habit.findById(habitId);
-    const filter = { _id: habitId };
-    if (habit.status === "incomplete") {
-      const doc = { status: "complete" };
-      const result = await Habit.updateOne(filter, { $set: doc });
-      if (result.matchedCount === 0) {
-        res.status(400).json({ msg: "Habit was not found." });
-      }
-      if (result.modifiedCount === 0) {
-        res.status(400).json({ msg: "No change was made." });
-      }
-      res.status(200).json({ result, msg: "Habit marked as complete." });
+    const habit = await Habit.findOne({ _id: habitId, userId });
+    if (!habit) {
+      return res.status(404).json({ msg: "Habit not found." });
     }
 
-    if (habit.status === "complete") {
-      const doc = { status: "incomplete" };
-      const result = await Habit.updateOne(filter, { $set: doc });
-      if (result.matchedCount === 0) {
-        res.status(400).json({ msg: "Habit was not found." });
-      }
-      if (result.modifiedCount === 0) {
-        res.status(400).json({ msg: "No change was made." });
-      }
-      res.status(200).json({ result, msg: "Habit marked as incomplete." });
+    if (status === "complete" && habit.status === "incomplete") {
+      habit.lastCompleted = new Date();
+      habit.habitStreak += 1;
     }
+    if (status === "paused") {
+      habit.status = "paused"
+    }
+    if (habit.status === "complete" && status === "incomplete") {
+      // Ensure streak doesn't go below 0
+      if (habit.habitStreak > 0) {
+        habit.habitStreak -= 1;
+      }
+
+      const today = moment().startOf('day');
+      const lastCompletedDate = moment(habit.lastCompleted).startOf('day');
+      if (!lastCompletedDate.isSame(today)) {
+        habit.lastCompleted = habit.lastCompleted; // Clear if not today
+      }
+    }
+
+    habit.status = status;
+    await habit.save();
+
+    await updateUserGeneralStreak(userId);
+
+    res.status(200).json({
+      result: habit,
+      msg: `Habit status updated to ${status}.`
+    });
   } catch (err) {
     console.log(err);
     res.status(500).json({ error: err.message });
   }
 };
 
-// Get user habits by userId
+// Function to update user's general streak if all non-paused habits are complete
+export const updateUserGeneralStreak = async (userId) => {
+  try {
+    const user = await User.findById(userId);
+    if (!user) return;
+
+    const timezone = user.userTimeZone || 'Africa/Lagos';
+    const currentDay = moment().tz(timezone).format("ddd");
+
+    const habits = await Habit.find({
+      userId,
+      status: { $in: ['incomplete', 'complete', 'paused'] },
+      $or: [
+        { repeatDays: { $size: 0 } },
+        { repeatDays: currentDay }
+      ]
+    });
+
+    const nonPausedHabits = habits.filter(habit => habit.status !== 'paused');
+    const allComplete = nonPausedHabits.length > 0 && nonPausedHabits.every(habit => habit.status === 'complete');
+
+    if (allComplete) {
+      user.genStreakCount += 1;
+      await user.save();
+      console.log(`Updated general streak for user ${userId} to ${user.genStreakCount}`);
+    }
+  } catch (err) {
+    console.error("Error updating user's general streak:", err);
+  }
+};
+
 export const getUserHabitsToday = async (req, res) => {
   try {
     const { userId } = req.params;
     if (!userId)
       return res.status(400).json({ msg: "Parameter is not present" });
 
-    const user = await User.findById(userId);
-    const timezone = user.userTimeZone;
+    const user = await User.findById(userId).select('userTimeZone');
+    if (!user) {
+      return res.status(404).json({ msg: "User not found." });
+    }
 
-    // important filtering logic
+    const timezone = user.userTimeZone || 'Africa/Lagos';
     const currentTime = moment().tz(timezone);
-    const currentDay = currentTime.format("dddd");
+    const currentDay = currentTime.format("ddd");
+    console.log("Current day: ", currentDay);
+
+    // Check if it's a new day and reset habit statuses if necessary
+    const lastReset = user.lastHabitReset ? moment(user.lastHabitReset).tz(timezone).startOf('day') : moment().tz(timezone).startOf('day');
+    const today = currentTime.startOf('day');
+    if (lastReset.isBefore(today)) {
+      await Habit.updateMany(
+        { userId, status: "complete" },
+        { $set: { status: "incomplete" } }
+      );
+      user.lastHabitReset = new Date();
+      await user.save();
+      console.log(`Reset habit statuses for user ${userId} on new day`);
+    }
 
     const habits = await Habit.find({
       userId,
-      $or: [{ goal: "daily" }, { goal: "weekly", repeatDays: currentDay }],
-      status: { $in: ["incomplete", "paused"] },
+      $or: [
+        { repeatDays: { $size: 0 } },
+        { repeatDays: currentDay }
+      ]
     });
-    if (!habits) return res.status(404).json({ msg: "No habits found." });
+    console.log(habits)
+
     res.status(200).json(habits);
   } catch (err) {
-    console.log(err);
+    console.error("Error getting today's habits:", err);
     res.status(500).json({ error: err.message });
   }
 };

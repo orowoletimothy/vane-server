@@ -2,13 +2,12 @@ import jwt from "jsonwebtoken";
 
 const verifyToken = (req, res, next) => {
   try {
-    let token = req.header("Authorization");
+    const token = req.cookies.token;
 
-    if (token && token.startsWith("Bearer ")) {
-      token = token.substring(7);
-    } else {
-      return res.status(401).send({ msg: "Access denied." });
+    if (!token) {
+      return res.status(401).json({ msg: "Access denied. No token provided." });
     }
+
     const verified = jwt.verify(token, process.env.JWT_SECRET);
     req.user = verified;
     next();

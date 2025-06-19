@@ -3,22 +3,23 @@ import {
   createHabit,
   updateHabit,
   deleteHabit,
-  markComplete,
+  setHabitStatus,
   getUserHabitsToday,
 } from "../controllers/habit.js";
 import verifyToken from "../middleware/auth.js";
+import { updateTimezone } from "../middleware/timezone.js";
 
 const router = express.Router();
 
 //get routes
-router.get("/:userId/today", verifyToken, getUserHabitsToday);
+router.get("/:userId/today", updateTimezone, verifyToken, getUserHabitsToday);
 
 //  create routes
 router.post("/:userId", verifyToken, createHabit);
 
 // update routes
 router.put("/:userId/:habitId", verifyToken, updateHabit);
-router.put("/:userId/:habitId/complete", verifyToken, markComplete);
+router.put("/:userId/:habitId/status", verifyToken, setHabitStatus);
 
 //delete endpoint
 router.delete("/:userId/:habitId", verifyToken, deleteHabit);
