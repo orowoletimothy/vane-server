@@ -256,3 +256,31 @@ export const processPendingNotifications = async () => {
         console.error('Error processing notifications:', err);
     }
 };
+
+export const sendEncouragementNote = async (req, res) => {
+    try {
+        const { recipientId } = req.params;
+        const { senderId, note } = req.body;
+        if (!senderId || !note) {
+            return res.status(400).json({ message: "Sender and note content are required" });
+        }
+        const sender = await User.findById(senderId);
+        if (!sender) {
+            return res.status(404).json({ message: "Sender not found" });
+        }
+        const notification = new Notification({
+            userId: recipientId,
+            title: `Note from ${sender.displayName || sender.username}`,
+            message: note,
+            type: "ENCOURAGEMENT_NOTE",
+            isRead: false,
+            scheduledFor: new Date(),
+            status: "SENT"
+        });
+        await notification.save();
+        res.status(201).json({ message: "Encouragement note sent as notification" });
+    } catch (err) {
+        console.error("Error sending encouragement note:", err);
+        res.status(500).json({ message: "Error sending encouragement note" });
+    }
+};

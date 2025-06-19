@@ -162,7 +162,7 @@ export const setHabitStatus = async (req, res) => {
           },
           {
             $inc: { completedCount: 1 },
-            $setOnInsert: { 
+            $setOnInsert: {
               userId: userId,
               habitId: habitId,
               date: today,
@@ -172,9 +172,9 @@ export const setHabitStatus = async (req, res) => {
               completedAt: new Date() // Update timestamp on subsequent completions
             }
           },
-          { 
-            upsert: true, 
-            new: true 
+          {
+            upsert: true,
+            new: true
           }
         );
         console.log(`Recorded completion for habit ${habitId} on ${today}. Total: ${completion.completedCount}/${habit.target_count}`);
@@ -183,11 +183,11 @@ export const setHabitStatus = async (req, res) => {
         // Continue even if completion recording fails
       }
     }
-    
+
     if (status === "paused") {
       habit.status = "paused";
     }
-    
+
     if (habit.status === "complete" && status === "incomplete") {
       // Uncomplete the habit
       if (habit.habitStreak > 0) {
@@ -413,6 +413,24 @@ export const getUserHabitsToday = async (req, res) => {
   }
 };
 
+export const getUserPublicHabits = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const habits = await Habit.find({ userId, is_public: true }).select('icon title _id habitStreak');
+    res.status(200).json(habits.map(h => ({
+      _id: h._id,
+      icon: h.icon,
+      title: h.title,
+      streak: h.habitStreak
+    })));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
+
 export const getAllUserHabits = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -425,7 +443,7 @@ export const getAllUserHabits = async (req, res) => {
     }
 
     const habits = await Habit.find({ userId }).sort({ createdAt: -1 });
-    
+
     res.status(200).json(habits);
   } catch (err) {
     console.error("Error getting user habits:", err);
@@ -437,7 +455,7 @@ export const getHabitCompletionHistory = async (req, res) => {
   try {
     const { userId, habitId } = req.params;
     const { days = 180 } = req.query; // Default to 180 days
-    
+
     if (!userId || !habitId)
       return res.status(400).json({ msg: "Parameters are missing" });
 
@@ -470,11 +488,11 @@ export const getHabitCompletionHistory = async (req, res) => {
     // Build the complete data structure with all dates
     const completionData = {};
     const today = moment();
-    
+
     for (let i = parseInt(days); i >= 0; i--) {
       const date = moment(today).subtract(i, 'days');
       const dateStr = date.format('YYYY-MM-DD');
-      
+
       // Only include completion data if the date is after the habit was created
       const habitCreatedDate = moment(habit.createdAt);
       if (date.isSameOrAfter(habitCreatedDate, 'day')) {
@@ -503,7 +521,7 @@ export const getUserPerformanceAnalytics = async (req, res) => {
   try {
     const { userId } = req.params;
     const { days = 90 } = req.query; // Default to 90 days for analytics
-    
+
     if (!userId)
       return res.status(400).json({ msg: "User ID is missing" });
 
@@ -573,7 +591,7 @@ export const getUserPerformanceAnalytics = async (req, res) => {
     const timeOfDayPercentages = {};
     Object.keys(timeOfDayStats).forEach(timeSlot => {
       const stats = timeOfDayStats[timeSlot];
-      timeOfDayPercentages[timeSlot] = stats.total > 0 
+      timeOfDayPercentages[timeSlot] = stats.total > 0
         ? Math.round((stats.completed / stats.total) * 100)
         : 0;
     });
@@ -581,7 +599,7 @@ export const getUserPerformanceAnalytics = async (req, res) => {
     const dayOfWeekPercentages = {};
     Object.keys(dayOfWeekStats).forEach(day => {
       const stats = dayOfWeekStats[day];
-      dayOfWeekPercentages[day] = stats.total > 0 
+      dayOfWeekPercentages[day] = stats.total > 0
         ? Math.round((stats.completed / stats.total) * 100)
         : 0;
     });

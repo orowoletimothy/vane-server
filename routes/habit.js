@@ -8,7 +8,8 @@ import {
   getAllUserHabits,
   getHabitCompletionHistory,
   getUserPerformanceAnalytics,
-  testStreakLogic,
+  getUserPublicHabits,
+  getAllUserHabits,
 } from "../controllers/habit.js";
 import verifyToken from "../middleware/auth.js";
 import { updateTimezone } from "../middleware/timezone.js";
@@ -20,7 +21,8 @@ router.get("/:userId/today", updateTimezone, verifyToken, getUserHabitsToday);
 router.get("/:userId/all", verifyToken, getAllUserHabits);
 router.get("/:userId/:habitId/history", verifyToken, getHabitCompletionHistory);
 router.get("/:userId/analytics", verifyToken, getUserPerformanceAnalytics);
-router.get("/:userId/test-streak", verifyToken, testStreakLogic);
+router.get("/:userId/public", getUserPublicHabits);
+router.get("/:userId/all", getAllUserHabits);
 
 //  create routes
 router.post("/:userId", verifyToken, createHabit);

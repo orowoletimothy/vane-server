@@ -2,10 +2,10 @@ import mongoose from "mongoose";
 
 const notificationSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-    habitId: { type: mongoose.Schema.Types.ObjectId, ref: "Habit", required: true },
+    habitId: { type: mongoose.Schema.Types.ObjectId, ref: "Habit", required: false },
     title: { type: String, required: true },
     message: { type: String, required: true },
-    type: { type: String, enum: ["HABIT_REMINDER", "FRIEND_REQUEST", "STREAK_MILESTONE"], default: "HABIT_REMINDER" },
+    type: { type: String, enum: ["HABIT_REMINDER", "FRIEND_REQUEST", "STREAK_MILESTONE", "ENCOURAGEMENT_NOTE"], default: "HABIT_REMINDER" },
     isRead: { type: Boolean, default: false },
     scheduledFor: { type: Date, required: true },
     status: { type: String, enum: ["PENDING", "SENT", "FAILED"], default: "PENDING" }

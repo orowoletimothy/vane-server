@@ -68,7 +68,7 @@ export const signupUser = async (req, res) => {
     // Return user data without password with mapped field names
     const userToReturn = newUser.toObject();
     delete userToReturn.password;
-    
+
     const userResponse = {
       ...userToReturn,
       date_joined: userToReturn.createdAt,
@@ -443,7 +443,7 @@ export const toggleVacationMode = async (req, res) => {
       is_vacation: user.isVacation
     };
 
-    res.status(200).json({ 
+    res.status(200).json({
       user: userResponse,
       message: `Vacation mode ${user.isVacation ? 'enabled' : 'disabled'}.`
     });
