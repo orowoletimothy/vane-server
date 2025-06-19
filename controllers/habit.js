@@ -172,6 +172,8 @@ export const setHabitStatus = async (req, res) => {
   try {
     const { userId, habitId } = req.params;
     const { status } = req.body;
+    console.log(`🔥 setHabitStatus called: userId=${userId}, habitId=${habitId}, status=${status}`);
+    
     if (!userId || !habitId)
       return res.status(400).json({ msg: "Parameter is absent." });
     if (!status || !["complete", "incomplete", "paused"].includes(status))
@@ -181,16 +183,23 @@ export const setHabitStatus = async (req, res) => {
     if (!habit) {
       return res.status(404).json({ msg: "Habit not found." });
     }
+    console.log(`🔥 Found habit: ${habit.title}, current status: ${habit.status}`);
 
-    const today = moment().startOf('day').toDate();
+    // Get user's timezone for consistent date handling
+    const user = await User.findById(userId).select('userTimeZone');
+    const timezone = user?.userTimeZone || 'Africa/Lagos';
+    const today = moment().tz(timezone).startOf('day').toDate();
+    console.log(`🔥 Using timezone: ${timezone}, today date: ${today}`);
 
     if (status === "complete" && habit.status !== "complete") {
+      console.log(`🔥 Marking habit as complete...`);
       // Mark habit as complete
       habit.lastCompleted = new Date();
       habit.habitStreak += 1;
 
       // Record the completion in HabitCompletion collection
       try {
+        console.log(`🔥 Creating HabitCompletion record...`);
         const completion = await HabitCompletion.findOneAndUpdate(
           { 
             habitId: habitId, 
@@ -201,11 +210,10 @@ export const setHabitStatus = async (req, res) => {
             $setOnInsert: {
               userId: userId,
               habitId: habitId,
-              date: today,
-              completedAt: new Date() // Record when it was completed
+              date: today
             },
             $set: {
-              completedAt: new Date() // Update timestamp on subsequent completions
+              completedAt: new Date() // Update timestamp on every completion
             }
           },
           {
@@ -213,9 +221,10 @@ export const setHabitStatus = async (req, res) => {
             new: true
           }
         );
-        console.log(`Recorded completion for habit ${habitId} on ${today}. Total: ${completion.completedCount}/${habit.target_count}`);
+        console.log(`🔥 HabitCompletion created/updated successfully:`, completion);
+        console.log(`🔥 Recorded completion for habit ${habitId} on ${today}. Total: ${completion.completedCount}/${habit.target_count}`);
       } catch (completionError) {
-        console.error("Error recording habit completion:", completionError);
+        console.error("🔥 ERROR recording habit completion:", completionError);
         // Continue even if completion recording fails
       }
     }
@@ -253,6 +262,7 @@ export const setHabitStatus = async (req, res) => {
 
     habit.status = status;
     await habit.save();
+    console.log(`🔥 Habit status updated to: ${status}`);
 
     await updateUserGeneralStreak(userId);
 
@@ -261,7 +271,7 @@ export const setHabitStatus = async (req, res) => {
       msg: `Habit status updated to ${status}.`
     });
   } catch (err) {
-    console.log(err);
+    console.log("🔥 ERROR in setHabitStatus:", err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -758,6 +768,45 @@ export const testStreakLogic = async (req, res) => {
     });
   } catch (err) {
     console.error("Error in test streak logic:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Utility function to migrate existing completion records with wrong timezone
+export const migrateCompletionTimezones = async (req, res) => {
+  try {
+    console.log("Starting completion timezone migration...");
+    
+    // Get all users and their timezones
+    const users = await User.find({}).select('_id userTimeZone');
+    
+    for (const user of users) {
+      const timezone = user.userTimeZone || 'Africa/Lagos';
+      
+      // Get all completions for this user
+      const completions = await HabitCompletion.find({ userId: user._id });
+      
+      for (const completion of completions) {
+        // Check if the date seems to be in UTC (potential timezone issue)
+        const currentDate = moment(completion.date);
+        const expectedDate = moment(completion.completedAt).tz(timezone).startOf('day');
+        
+        // If dates don't match, update the completion date to use proper timezone
+        if (!currentDate.isSame(expectedDate, 'day')) {
+          console.log(`Updating completion ${completion._id} from ${currentDate.format()} to ${expectedDate.format()}`);
+          
+          await HabitCompletion.updateOne(
+            { _id: completion._id },
+            { date: expectedDate.toDate() }
+          );
+        }
+      }
+    }
+    
+    console.log("Migration completed");
+    res.status(200).json({ msg: "Migration completed successfully" });
+  } catch (err) {
+    console.error("Migration error:", err);
     res.status(500).json({ error: err.message });
   }
 };

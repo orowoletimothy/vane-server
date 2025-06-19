@@ -10,6 +10,7 @@ import {
   getUserPublicHabits,
   getAllUserHabits,
   checkHabitFeasibilityEndpoint,
+  migrateCompletionTimezones,
 } from "../controllers/habit.js";
 import verifyToken from "../middleware/auth.js";
 import { updateTimezone } from "../middleware/timezone.js";
@@ -23,6 +24,9 @@ router.get("/:userId/:habitId/history", verifyToken, getHabitCompletionHistory);
 router.get("/:userId/analytics", verifyToken, getUserPerformanceAnalytics);
 router.get("/:userId/public", getUserPublicHabits);
 router.get("/:userId/all", getAllUserHabits);
+
+// Migration route for fixing timezone issues
+router.post("/migrate/timezones", migrateCompletionTimezones);
 
 //  create routes
 router.post("/:userId", verifyToken, createHabit);
