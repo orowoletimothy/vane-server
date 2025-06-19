@@ -50,10 +50,7 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // MongoDB connection
-mongoose.connect(process.env.MONGO_LOCAL, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
+mongoose.connect(process.env.MONGO_LOCAL)
   .then(() => console.log("MongoDB connected successfully"))
   .catch((error) => console.log(`${error} did not connect`));
 
