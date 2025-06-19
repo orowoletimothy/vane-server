@@ -15,6 +15,7 @@ import notificationRoutes from "./routes/notification.js";
 import { processPendingNotifications } from "./controllers/notification.js";
 import { checkAndResetMissedStreaks } from "./controllers/habit.js";
 import socialRoutes from "./routes/social.js"
+import moodRoutes from "./routes/mood.js"
 
 // Configurations
 const app = express();
@@ -75,6 +76,7 @@ app.use("/auth", authRoutes);
 app.use("/users/habits", habitRoutes);
 app.use("/notifications", notificationRoutes);
 app.use("/social", socialRoutes);
+app.use("/mood", moodRoutes)
 
 app.get("/users/:userId/minimal", (req, res) => {
   const userId = req.params.userId;
