@@ -1,24 +1,28 @@
 import Habit from "../models/Habit.js";
 import HabitCompletion from "../models/HabitCompletion.js";
 import moment from "moment-timezone";
+import nlp from "compromise";
 
 // Configuration constants for feasibility limits
 const FEASIBILITY_CONFIG = {
   // Time slot limits (minutes per day)
-  MAX_DAILY_HABIT_TIME: 180, // 3 hours
+  MAX_DAILY_HABIT_TIME: 240, // 4 hours
   MAX_WEEKLY_HABIT_TIME: 720, // 12 hours per week
   
   // Habit count limits
-  MAX_DAILY_HABITS: 8,
-  MAX_WEEKLY_HABITS: 15,
+  MAX_DAILY_HABITS: 20,
+  MAX_WEEKLY_HABITS: 35,
   
   // Completion rate thresholds
-  MIN_COMPLETION_RATE: 0.7, // 70% success rate
+  MIN_COMPLETION_RATE: 0.6, // 70% success rate
   HIGH_COMPLETION_RATE: 0.85, // 85% success rate
   
   // Streak duration thresholds (days)
   MIN_STREAK_FOR_STACKING: 7,
   OPTIMAL_STREAK_FOR_STACKING: 21,
+  
+  // Grace period for new habits before they count towards performance metrics
+  MATURE_HABIT_THRESHOLD_DAYS: 5,
   
   // Time slot conflict window (minutes)
   TIME_CONFLICT_WINDOW: 30,
@@ -31,44 +35,79 @@ const FEASIBILITY_CONFIG = {
     'gym': 60,
     'run': 30,
     'jog': 30,
+    'lift': 45,
+    'weights': 45,
+    'cardio': 30,
+    'yoga': 30,
+    'walk': 20,
     'meditation': 20,
     'meditate': 20,
+    'pray': 10,
     'read': 30,
     'study': 45,
+    'learn': 45,
+    'practice': 30,
+    'code': 60,
     'journal': 15,
     'write': 30,
+    'draw': 30,
+    'paint': 30,
+    'play music': 30,
     'cook': 30,
     'clean': 20,
+    'plan': 15,
+    'review': 15,
     'water': 2,
     'vitamin': 1,
+    'floss': 3,
     'stretch': 10
   }
 };
 
 /**
- * Extract estimated time for a habit based on its title and description
+ * Extract estimated time for a habit based on its title and description using NLP
  */
 const estimateHabitTime = (title, notes = '') => {
   const text = `${title} ${notes}`.toLowerCase();
   
-  // Check for explicit time mentions (e.g., "30 minutes", "1 hour")
-  const timeMatch = text.match(/(\d+)\s*(min|minute|minutes|hour|hours|hr|hrs)/);
+  // 1. Check for explicit time mentions first (most reliable)
+  const timeMatch = text.match(/(\d+(?:\.\d+)?)\s*(min|minute|minutes|hr|hrs|hour|hours)/);
   if (timeMatch) {
-    const value = parseInt(timeMatch[1]);
+    const value = parseFloat(timeMatch[1]);
     const unit = timeMatch[2];
-    if (unit.includes('hour') || unit.includes('hr')) {
+    if (unit.startsWith('h')) { // hour, hr, hrs
       return value * 60;
     }
-    return value;
+    return value; // min, minute, minutes
   }
   
-  // Check for keyword-based estimates
+  // 2. Use NLP to parse the text and find relevant keywords
+  const doc = nlp(text);
+  const terms = new Set([
+      ...doc.verbs().out('array'),
+      ...doc.nouns().out('array')
+  ]);
+
+  for (const term of terms) {
+    // Normalize the term by getting its singular/base form
+    const docTerm = nlp(term);
+    const noun = docTerm.nouns().toSingular().out('text');
+    const verb = docTerm.verbs().toInfinitive().out('text');
+    const keyword = verb || noun || term;
+
+    if (FEASIBILITY_CONFIG.HABIT_TIME_BY_KEYWORD[keyword]) {
+      return FEASIBILITY_CONFIG.HABIT_TIME_BY_KEYWORD[keyword];
+    }
+  }
+  
+  // 3. Fallback to simple keyword search for multi-word keys
   for (const [keyword, time] of Object.entries(FEASIBILITY_CONFIG.HABIT_TIME_BY_KEYWORD)) {
-    if (text.includes(keyword)) {
+     if (keyword.includes(' ') && text.includes(keyword)) {
       return time;
     }
   }
   
+  // 4. Fallback to default time
   return FEASIBILITY_CONFIG.DEFAULT_HABIT_TIME;
 };
 
@@ -163,6 +202,11 @@ export const checkHabitFeasibility = async (userId, newHabitData) => {
     // Get all existing habits for the user
     const existingHabits = await Habit.find({ userId, status: { $ne: 'paused' } });
     
+    // Filter for "mature" habits to be used in performance calculations
+    const matureHabits = existingHabits.filter(habit => 
+      moment().diff(moment(habit.createdAt), 'days') >= FEASIBILITY_CONFIG.MATURE_HABIT_THRESHOLD_DAYS
+    );
+
     const feasibilityResult = {
       feasible: true,
       confidence: 'high', // high, medium, low
@@ -188,10 +232,8 @@ export const checkHabitFeasibility = async (userId, newHabitData) => {
     let totalDailyHabits = repeatDays && repeatDays.length > 0 ? 0 : 1;
     let totalWeeklyHabits = newWeeklyFreq;
     
-    const habitMetrics = await Promise.all(
-      existingHabits.map(async (habit) => {
-        const completionRate = await calculateCompletionRate(habit._id);
-        const streak = await calculateCurrentStreak(habit._id);
+    // Calculate metrics for all existing habits for load calculation
+    for (const habit of existingHabits) {
         const habitTime = estimateHabitTime(habit.title, habit.notes);
         const weeklyFreq = calculateWeeklyFrequency(habit.repeatDays);
         
@@ -200,17 +242,23 @@ export const checkHabitFeasibility = async (userId, newHabitData) => {
           totalDailyHabits += 1;
         }
         totalWeeklyHabits += weeklyFreq;
-        
-        return { completionRate, streak, habitTime, weeklyFreq };
+    }
+    
+    // Calculate performance metrics based on MATURE habits only
+    const performanceMetrics = await Promise.all(
+      matureHabits.map(async (habit) => {
+        const completionRate = await calculateCompletionRate(habit._id);
+        const streak = await calculateCurrentStreak(habit._id);
+        return { completionRate, streak };
       })
     );
     
-    // Calculate averages
-    if (habitMetrics.length > 0) {
+    // Calculate averages from performance metrics
+    if (performanceMetrics.length > 0) {
       feasibilityResult.metrics.avgCompletionRate = 
-        habitMetrics.reduce((sum, m) => sum + m.completionRate, 0) / habitMetrics.length;
+        performanceMetrics.reduce((sum, m) => sum + m.completionRate, 0) / performanceMetrics.length;
       feasibilityResult.metrics.avgStreakDuration = 
-        habitMetrics.reduce((sum, m) => sum + m.streak, 0) / habitMetrics.length;
+        performanceMetrics.reduce((sum, m) => sum + m.streak, 0) / performanceMetrics.length;
     }
     
     feasibilityResult.metrics.currentHabitCount = existingHabits.length;
@@ -262,8 +310,8 @@ export const checkHabitFeasibility = async (userId, newHabitData) => {
       feasibilityResult.confidence = 'medium';
     }
     
-    // Rule 4: Check user readiness based on completion rates and streaks
-    if (existingHabits.length > 0) {
+    // Rule 4: Check user readiness based on completion rates and streaks of MATURE habits
+    if (matureHabits.length > 0) {
       const { avgCompletionRate, avgStreakDuration } = feasibilityResult.metrics;
       
       if (avgCompletionRate < FEASIBILITY_CONFIG.MIN_COMPLETION_RATE) {
@@ -289,17 +337,18 @@ export const checkHabitFeasibility = async (userId, newHabitData) => {
       if (avgCompletionRate < FEASIBILITY_CONFIG.HIGH_COMPLETION_RATE || 
           avgStreakDuration < FEASIBILITY_CONFIG.OPTIMAL_STREAK_FOR_STACKING) {
         feasibilityResult.confidence = 'medium';
-        feasibilityResult.message = '⚠️ You can add this habit, but consider waiting for better consistency.';
+        feasibilityResult.message = '⚠️ You can add this habit, but consider waiting for better consistency on your established habits.';
         feasibilityResult.warnings.push(
           'Your current habits could be more established before adding new ones.'
         );
       }
     }
     
-    // Rule 5: Provide positive reinforcement for good metrics
-    if (feasibilityResult.metrics.avgCompletionRate >= FEASIBILITY_CONFIG.HIGH_COMPLETION_RATE &&
+    // Rule 5: Provide positive reinforcement for good metrics on mature habits
+    if (matureHabits.length > 0 && 
+        feasibilityResult.metrics.avgCompletionRate >= FEASIBILITY_CONFIG.HIGH_COMPLETION_RATE &&
         feasibilityResult.metrics.avgStreakDuration >= FEASIBILITY_CONFIG.OPTIMAL_STREAK_FOR_STACKING) {
-      feasibilityResult.message = '🌟 Excellent! Your consistency makes you ready for a new challenge.';
+      feasibilityResult.message = '🌟 Excellent! Your consistency with established habits makes you ready for a new challenge.';
       feasibilityResult.confidence = 'high';
     }
     
